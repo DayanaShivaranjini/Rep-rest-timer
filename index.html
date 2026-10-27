@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#111827">
+<title>Rep & Rest Timer</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--panel:#151d30;--line:#29354d;--text:#f4f6fb;--muted:#aab5c8;--accent:#7c9cff;--green:#57d6a0}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -20%,#26365c 0,#0b1020 48%);color:var(--text);font:16px system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh}
+main{max-width:520px;margin:auto;padding:22px 17px 36px}.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}.brand{font-weight:800;letter-spacing:.08em}.sub,.muted{color:var(--muted);font-size:13px}
+.panel{background:rgba(21,29,48,.94);border:1px solid var(--line);border-radius:20px;padding:18px;margin:13px 0}
+h2{font-size:16px;margin:0 0 15px}.fields{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}label{font-size:12px;color:var(--muted)}input{display:block;width:100%;margin-top:7px;padding:13px 7px;background:#0d1526;color:white;border:1px solid var(--line);border-radius:11px;font-size:18px;text-align:center}
+.hint{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.45}
+.display{text-align:center;padding:25px 16px}.phase{font-size:13px;letter-spacing:.18em;font-weight:800;color:var(--accent)}.clock{font-size:clamp(76px,22vw,112px);font-weight:800;letter-spacing:-.07em;line-height:1.25;font-variant-numeric:tabular-nums;margin:8px 0}.reptext{color:var(--muted);font-size:14px}.message{margin:18px 0 12px;font-weight:600;min-height:24px}.bar{height:8px;background:#303b50;border-radius:20px;overflow:hidden}.fill{height:100%;width:0;background:linear-gradient(90deg,#7795ff,#57d6a0);transition:width .15s}
+.meta{display:flex;justify-content:space-between;margin-top:9px;color:var(--muted);font-size:12px}
+.dots{display:flex;gap:8px;flex-wrap:wrap}.dot{width:29px;height:29px;border-radius:50%;border:1px solid #526079;display:grid;place-items:center;font-size:12px}.dot.done{background:var(--green);border-color:var(--green);color:#07150f}.dot.active{border:2px solid var(--accent);font-weight:800}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}button{border:0;border-radius:13px;padding:15px 12px;font-size:15px;font-weight:750;cursor:pointer}.primary{background:var(--accent);color:#10182b}.secondary{background:#202c43;color:var(--text);border:1px solid var(--line)}button:active{transform:scale(.98)}.sound{width:100%;margin-top:10px}.smallprint{text-align:center;color:var(--muted);font-size:11px;line-height:1.5;margin:18px 8px}
+@media(max-width:360px){main{padding:16px 12px}.panel{padding:14px}.fields{gap:6px}input{font-size:16px}}
+</style>
+
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon-192.png">
+<meta name="theme-color" content="#111827">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+</head>
+<body><main>
+<header class="head"><div><div class="brand">REP & REST</div><div class="sub">Your workout companion</div></div><div class="sub">OFFLINE TIMER</div></header>
+<section class="panel">
+<h2>Workout settings</h2>
+<div class="fields">
+<label>Exercise · sec<input id="duration" type="number" min="1" max="3600" inputmode="numeric" value="30"></label>
+<label>Repetitions<input id="reps" type="number" min="1" max="100" inputmode="numeric" value="5"></label>
+<label>Rest · sec<input id="rest" type="number" min="0" max="3600" inputmode="numeric" value="5"></label>
+</div><div class="hint">Rest happens between repetitions. No extra rest is added after the final rep.</div>
+</section>
+<section class="panel display" aria-live="polite">
+<div class="phase" id="phase">READY</div><div class="clock" id="clock">00:30</div>
+<div class="reptext" id="reptext">Repetition 1 of 5</div>
+<div class="message" id="message">Press Start when you're ready!</div>
+<div class="bar"><div class="fill" id="fill"></div></div>
+<div class="meta"><span id="elapsed">Ready to begin</span><span id="remaining">5 reps</span></div>
+</section>
+<section class="panel"><div style="display:flex;justify-content:space-between;margin-bottom:14px"><h2 style="margin:0">Repetition progress</h2><span class="muted" id="count">0 / 5</span></div><div class="dots" id="dots"></div></section>
+<div class="actions"><button class="primary" id="start">▶ Start workout</button><button class="secondary" id="reset">↻ Reset</button></div>
+<button class="secondary sound" id="sound">♫ Sound: ON</button>
+<div class="smallprint">Keep this page open and your phone volume turned up. Android may pause timers or audio if the screen locks or the browser is put in the background.</div>
+</main>
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+let duration=30,reps=5,rest=5,rep=1,phase='ready',left=30,elapsed=0,running=false,paused=false,sound=true,interval=null,deadline=0,ctx=null,phaseDuration=30,resumePhase='work',lastBeepLeft=-1;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function settings(){duration=clamp(parseInt($('duration').value)||30,1,3600);reps=clamp(parseInt($('reps').value)||1,1,100);rest=clamp(parseInt($('rest').value)||0,0,3600);$('duration').value=duration;$('reps').value=reps;$('rest').value=rest;try{localStorage.setItem('repRestSettings',JSON.stringify({duration,reps,rest}))}catch(e){}}
+function fmt(n){return String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0')}
+function audio(){try{if(!ctx)ctx=new(window.AudioContext||window.webkitAudioContext)();if(ctx.state==='suspended')ctx.resume()}catch(e){}}
+function tone(freq=850,dur=.2){if(!sound||!ctx)return;try{let o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';o.frequency.value=freq;g.gain.setValueAtTime(.001,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.16,ctx.currentTime+.015);g.gain.setValueAtTime(.16,ctx.currentTime+dur*.65);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+dur);o.connect(g);g.connect(ctx.destination);o.start();o.stop(ctx.currentTime+dur+.02)}catch(e){}}
+function alarm(){tone(1050,.3);setTimeout(()=>tone(1050,.3),380)}
+function cue(){tone(620,.13);setTimeout(()=>tone(900,.18),190)}
+function clear(){if(interval)clearInterval(interval);interval=null}
+function render(){
+ $('clock').textContent=fmt(left);
+ $('phase').textContent=phase==='work'?'EXERCISE':phase==='rest'?'REST INTERVAL':phase==='done'?'WORKOUT COMPLETE':phase==='paused'?'PAUSED':'READY';
+ $('reptext').textContent=phase==='done'?'All repetitions completed':`Repetition ${rep} of ${reps}`;
+ $('message').textContent=phase==='work'?'Keep going! Focus on your movement.':phase==='rest'?'Breathe and get ready for the next rep.':phase==='done'?'You did it! Workout complete 🎉':phase==='paused'?'Workout paused. Resume when ready.':'Press Start when you are ready!';
+ $('fill').style.width=(phase==='work'||phase==='rest'?100*(phaseDuration-left)/phaseDuration:phase==='done'?100:0)+'%';
+ $('elapsed').textContent=phase==='ready'?'Ready to begin':phase==='done'?'Finished':elapsed+' sec elapsed';
+ $('remaining').textContent=phase==='done'?'Complete':(reps-rep+(phase==='rest'?1:0))+' reps remaining';
+ let done=phase==='done'?reps:(phase==='work'||phase==='rest'?rep-1:0);
+ $('count').textContent=done+' / '+reps+' completed';$('dots').replaceChildren();
+ for(let i=1;i<=reps;i++){let d=document.createElement('span');d.className='dot'+(i<=done?' done':i===rep&&phase!=='ready'?' active':'');d.textContent=i;$('dots').append(d)}
+ $('start').textContent=running?'Ⅱ Pause':paused?'▶ Resume':phase==='done'?'↻ Start again':'▶ Start workout';
+}
+function finish(){clear();running=false;paused=false;phase='done';left=0;alarm();render()}
+function transition(){
+ elapsed+=phaseDuration;
+ if(phase==='work'){
+  alarm();
+  if(rep>=reps){finish();return}
+  if(rest>0){phase='rest';left=rest;phaseDuration=rest;lastBeepLeft=rest;}
+  else{rep++;phase='work';left=duration;phaseDuration=duration;cue()}
+ }else{rep++;phase='work';left=duration;phaseDuration=duration;cue()}
+ deadline=Date.now()+phaseDuration*1000;
+}
+function tick(){
+ if(!running)return;
+ let ms=Math.max(0,deadline-Date.now());left=Math.ceil(ms/1000);
+ if(ms===0)transition();
+ if(running&&phase==='rest'&&left>0&&left!==lastBeepLeft){tone(520,.07);lastBeepLeft=left;}
+ render();
+}
+function begin(){settings();audio();clear();rep=1;elapsed=0;phase='work';left=duration;phaseDuration=duration;deadline=Date.now()+duration*1000;running=true;paused=false;cue();render();interval=setInterval(tick,100)}
+$('start').addEventListener('click',()=>{
+ if(running){left=Math.ceil(Math.max(0,deadline-Date.now())/1000);resumePhase=phase;clear();running=false;paused=true;phase='paused';render();return}
+ if(paused){audio();paused=false;running=true;phase=resumePhase;deadline=Date.now()+left*1000;render();interval=setInterval(tick,100);return}
+ begin()
+});
+$('reset').addEventListener('click',()=>{clear();running=false;paused=false;rep=1;elapsed=0;settings();phase='ready';left=duration;phaseDuration=duration;render()});
+['duration','reps','rest'].forEach(id=>$(id).addEventListener('change',()=>{if(running||paused)return;settings();left=duration;phaseDuration=duration;render()}));
+$('sound').addEventListener('click',()=>{sound=!sound;$('sound').textContent='♫ Sound: '+(sound?'ON':'OFF');if(sound){audio();tone()}});
+try{let s=JSON.parse(localStorage.getItem('repRestSettings')||'null');if(s){$('duration').value=s.duration;$('reps').value=s.reps;$('rest').value=s.rest}}catch(e){}
+settings();left=duration;phaseDuration=duration;render();
+})();
+</script>
+
+
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./service-worker.js").catch(() => {});
+  });
+}
+</script>
+</body></html>
